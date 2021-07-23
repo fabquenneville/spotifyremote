@@ -26,10 +26,9 @@ typedef struct AppConfig {
   char domain[32];
   char spotifyid[64];
   char spotifysecret[64];
+  char spotifyrefreshtoken[64];
 } AppConfig;
 AppConfig config;
-
-// #define SPOTIFY_REFRESH_TOKEN "AAAAAAAAAABBBBBBBBBBBCCCCCCCCCCCDDDDDDDDDDD"
 
 WiFiClientSecure client;
 ArduinoSpotify spotify;
@@ -56,16 +55,34 @@ const char *webpageTemplate =
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <style>
-      .grid {
+
+      body {
+        margin: 0 1em 0 1em;
+      }
+
+      .formgrid {
         display: grid;
-        grid-template-columns:minmax(0, 1fr);
+        grid-template-columns: 10em minmax(0, 1fr);
+        grid-column-start:span 2;		
         grid-row-gap:.1em;
       }
-      .grid_double {
-          grid-column-start:span 2;		
-      }
+
       .grid_span2{
         grid-column: span 2;
+      }
+
+      .max25 {
+        max-width: 25em;
+      }
+
+      @media screen and (min-width:900px){
+        body {
+          margin: 0 10em 0 10em;
+        }
+      }
+
+      .center_me{
+        text-align: center;
       }
     </style>
   </head>
@@ -111,11 +128,11 @@ boolean testconnect(const char* ssid, const char* pass){
 void handleNetworkSetup()
 {
   char index[2048];
-  const char * title = "SpotifyRemote setup";
+  const char * title = "SpotifyRemote initial setup (1 of 3): Network";
   const char * section = R"(
   <section>
-  <h2>Initial setup!</h2>
-  <form action="/" class="grid grid_double" method="post">
+  <h2>Initial setup: Network!</h2>
+  <form action="/" class="formgrid" method="post">
     <label for="ssid">Network SSID:</label>
     <input type="text" id="ssid" name="ssid" required>
 
@@ -136,43 +153,74 @@ void handleNetworkSetup()
   server.send(200, "text/html", index);
 }
 
-void handleSpotifySetup()
+void handleSpotifyIDSetup()
 {
   char index[2048];
-  const char * title = "SpotifyRemote setup";
+  const char * title = "SpotifyRemote initial setup (2 of 3): Spotify clientID";
   const char * section = R"(
   <section>
-  <h2>Initial setup!</h2>
-  <form action="/" class="grid grid_double" method="post">
-    <p class="grid_span2">From <a href="https://developer.spotify.com/dashboard/applications/" target="_blank">Spotify application dashboard</a></p>
+  <h2>Initial setup: Spotify clientID!</h2>
+  <div>
+    <div class="max25">
+      <form action="/" class="formgrid" method="post">
+        <p class="grid_span2">From <a href="https://developer.spotify.com/dashboard/applications/" target="_blank">Spotify application dashboard</a></p>
 
-    <label for="spotifyid">Spotify client ID:</label>
-    <input type="text" id="spotifyid" name="spotifyid" required>
+        <label for="spotifyid">Spotify client ID:</label>
+        <input type="text" id="spotifyid" name="spotifyid" required>
 
-    <label for="spotifysecret">Spotify client secret:</label>
-    <input type="text" id="spotifysecret" name="spotifysecret" required>
+        <label for="spotifysecret">Spotify client secret:</label>
+        <input type="text" id="spotifysecret" name="spotifysecret" required>
 
-    <div class="grid_span2"><input type="submit" value="Submit"></div>
-  </form> 
+        <div class="grid_span2"><input type="submit" value="Submit"></div>
+      </form> 
+    </div>
+  </div>
   </section>
   )";
   sprintf(index, webpageTemplate, title, section);
   server.send(200, "text/html", index);
 }
 
-boolean handleNetworkSetupForm()
+void handleSpotifyRefreshSetup()
+{
+  char index[2048];
+  const char * title = "SpotifyRemote initial setup (2 of 3): Spotify clientID";
+  const char * section = R"(
+  <section>
+  <h2>Initial setup: Spotify clientID!</h2>
+  <div>
+    <div class="max25">
+      <form action="/" class="formgrid" method="post">
+        <p class="grid_span2">From <a href="https://developer.spotify.com/dashboard/applications/" target="_blank">Spotify application dashboard</a></p>
+
+        <label for="spotifyid">Spotify client ID:</label>
+        <input type="text" id="spotifyid" name="spotifyid" required>
+
+        <label for="spotifysecret">Spotify client secret:</label>
+        <input type="text" id="spotifysecret" name="spotifysecret" required>
+
+        <div class="grid_span2"><input type="submit" value="Submit"></div>
+      </form> 
+    </div>
+  </div>
+  </section>
+  )";
+  sprintf(index, webpageTemplate, title, section);
+  server.send(200, "text/html", index);
+}
+
+void handleNetworkSetupForm()
 {
   if( ! server.hasArg("ssid") || ! server.hasArg("pass") || 
       ! server.hasArg("hostname") || ! server.hasArg("password") ){
-        handleNetworkSetup();
+    handleNetworkSetup();
+    return;
   }
 
   String ssid = server.arg("ssid");
   String pass = server.arg("pass");
   String hostname = server.arg("hostname");
   String domain = server.arg("domain");
-
-  Serial.println("In handleInitialSetupForm");
   
   Serial.print("ssid      :");
   Serial.println(ssid);
@@ -186,7 +234,7 @@ boolean handleNetworkSetupForm()
   if (! testconnect(ssid.c_str(), pass.c_str())) {
     Serial.println("Something wrong with the WIFI settings provided, please try again!");
     apmode();
-    return false;
+    return;
   }
 
 
@@ -203,17 +251,61 @@ boolean handleNetworkSetupForm()
   sprintf(message, "Network succesfully setup, please visit http://%s.%s/ to setup spotify", config.hostname, config.domain);
   Serial.println(message);
 
-  return true;
+  handleSpotifyIDSetup();
+  return;
 }
 
-void handleSpotifySetupForm()
+void handleSpotifyIDSetupForm()
 {
-  Serial.println("In handleInitialSetupForm");
-  String message = "Number of args received:";
-  message += server.args();
-  Serial.println(message);
+  if( ! server.hasArg("spotifyid") || ! server.hasArg("spotifysecret")){
+    handleSpotifyIDSetup();
+    return;
+  }
+
+  String spotifyid = server.arg("spotifyid");
+  String spotifysecret = server.arg("spotifysecret");
+  
+  Serial.print("spotifyid      :");
+  Serial.println(spotifyid);
+  Serial.print("spotifysecret      :");
+  Serial.println(spotifysecret);
+
+  // put some data in config
+  strcpy(config.spotifyid, spotifyid.c_str());
+  strcpy(config.spotifysecret, spotifysecret.c_str());
+
+  saveConfig(EEPROM_SIZE);
+
+  Serial.println("Spotify ID and sectet saved!");
+
+  return;
 }
 
+void handleSpotifyRefreshSetupForm()
+{
+  if( ! server.hasArg("spotifyid") || ! server.hasArg("spotifysecret")){
+    handleSpotifyIDSetup();
+    return;
+  }
+
+  String spotifyid = server.arg("spotifyid");
+  String spotifysecret = server.arg("spotifysecret");
+  
+  Serial.print("spotifyid      :");
+  Serial.println(spotifyid);
+  Serial.print("spotifysecret      :");
+  Serial.println(spotifysecret);
+
+  // put some data in config
+  strcpy(config.spotifyid, spotifyid.c_str());
+  strcpy(config.spotifysecret, spotifysecret.c_str());
+
+  saveConfig(EEPROM_SIZE);
+
+  Serial.println("Spotify ID and sectet saved!");
+  handleSpotifyRefreshSetup();
+  return;
+}
 
 void indicate(int ledPin, int duration = 3, bool solid = true) {
   if (solid) {
@@ -247,6 +339,14 @@ void netconnnect(){
     Serial.print("Connected, IP: ");
     Serial.println(WiFi.localIP());
   }
+
+  String fqdn = String(config.hostname) + "." + String(config.domain);
+  const char* cfqdn = fqdn.c_str();
+  if (MDNS.begin(cfqdn))
+  {
+    Serial.print("MDNS responder started       : ");
+    Serial.println(fqdn);
+  }
 }
 
 void setup() {
@@ -272,9 +372,11 @@ void setup() {
     netconnnect();
 
     if (String(config.spotifyid).length() == 0){
-      apmode();
-      server.on("/", HTTP_POST, handleSpotifySetupForm);
-      server.on("/", handleSpotifySetup);
+      server.on("/", HTTP_POST, handleSpotifyIDSetupForm);
+      server.on("/", handleSpotifyIDSetup);
+    } else if (String(config.spotifyrefreshtoken).length() == 0){
+      server.on("/", HTTP_POST, handleSpotifyRefreshSetupForm);
+      server.on("/", handleSpotifyRefreshSetup);
     } else {
       spotify.lateInit(client, config.spotifyid, config.spotifysecret);
       client.setCACert(spotify_server_cert);
