@@ -1,10 +1,11 @@
-#include <EEPROM.h>
-#include <ESPmDNS.h>
-#include <WiFi.h>
-#include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #include <ArduinoSpotify.h>
 #include <ArduinoSpotifyCert.h>
+#include <EEPROM.h>
+#include <ESPmDNS.h>
+#include <WebServer.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
 
 const int btnPrev = 27;
 const int btnMid = 25;
@@ -14,21 +15,53 @@ const int wifi_timeout = 20000;
 
 String playstatus = "play";
 
+WebServer server(80);
+
+const char *webpageTemplate =
+    R"(
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  </head>
+  <body>
+    <h1>%s</h1>
+    %s
+  </body>
+</html>
+)";
+
 #define EEPROM_SIZE 1024
-typedef struct config {
+typedef struct AppConfig {
   char ssid[32];
   char pass[32];
   char hostname[32];
   char domain[32];
   char spotifyid[64];
   char spotifysecret[64];
-} Config;
-Config config;
+} AppConfig;
+AppConfig config;
 
 // #define SPOTIFY_REFRESH_TOKEN "AAAAAAAAAABBBBBBBBBBBCCCCCCCCCCCDDDDDDDDDDD"
 
 WiFiClientSecure client;
 ArduinoSpotify spotify;
+
+void handleIndex()
+{
+  char index[1024];
+  const char * title = "Some title";
+  const char * section = R"V0G0N(
+  <section>
+  <h2>Some title!</h2>
+  <p>Some text</p>
+  </section>
+  )V0G0N";
+  sprintf(index, webpageTemplate, title, section);
+  server.send(200, "text/html", index);
+}
 
 
 void indicate(int ledPin, int duration = 3, bool solid = true) {
@@ -95,6 +128,7 @@ void setup() {
 
   if (String(config.ssid).length() == 0){
     apmode();
+    server.on("/", handleIndex);
   } else {
     netconnnect();
 
@@ -110,10 +144,12 @@ void setup() {
     }
   }
   
+  server.begin();
 }
 
 
 void loop() {
+  server.handleClient();
   // bool previous = false;
   // bool middle = false;
   // bool next = false;
