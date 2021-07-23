@@ -1,21 +1,35 @@
-#include <Arduino.h>
 #include <EEPROM.h>
+#include <ESPmDNS.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <ArduinoJson.h>
+#include <ArduinoSpotify.h>
+#include <ArduinoSpotifyCert.h>
 
 const int btnPrev = 27;
 const int btnMid = 25;
 const int btnNxt = 32;
 const int redLed = 22;
-
 const int wifi_timeout = 20000;
+
+String playstatus = "play";
 
 #define EEPROM_SIZE 1024
 typedef struct config {
   char ssid[32];
   char pass[32];
+  char hostname[32];
   char domain[32];
+  char spotifyid[64];
+  char spotifysecret[64];
 } Config;
 Config config;
+
+// #define SPOTIFY_REFRESH_TOKEN "AAAAAAAAAABBBBBBBBBBBCCCCCCCCCCCDDDDDDDDDDD"
+
+WiFiClientSecure client;
+ArduinoSpotify spotify;
+
 
 void indicate(int ledPin, int duration = 3, bool solid = true) {
   if (solid) {
@@ -29,6 +43,19 @@ void indicate(int ledPin, int duration = 3, bool solid = true) {
       digitalWrite(ledPin, LOW);
       delay(1000);
     }
+  }
+}
+
+void apmode(){
+  Serial.println("Setting Access Point         : SpotifyRemote");
+  WiFi.softAP("SpotifyRemote");
+  IPAddress IP = WiFi.softAPIP();
+  Serial.print("AP IP address                : ");
+  Serial.println(IP);
+
+  if (MDNS.begin("spotifyremote"))
+  {
+    Serial.println("MDNS responder started       : spotifyremote");
   }
 }
 
@@ -51,24 +78,6 @@ void netconnnect(){
   }
 }
 
-IPAddress get_ghomeIP(){
-
-  // Building the FQDN
-  String hostname = "Google-Home." + String(config.domain);
-  const char *chostname = hostname.c_str();
-
-  Serial.println("Looking for " + hostname);
-  IPAddress ghomeIP;
-  int err = WiFi.hostByName(chostname, ghomeIP);
-  if(err == 1){
-    Serial.print("Speaker found: ");
-    Serial.println(ghomeIP);
-  } else {
-    Serial.println("Speaker not found.");
-  }
-  return ghomeIP;
-}
-
 void setup() {
   Serial.begin(115200);
   
@@ -84,11 +93,23 @@ void setup() {
   EEPROM.begin(EEPROM_SIZE);
   EEPROM.get(0, config);
 
-  // Network
-  netconnnect();
+  if (String(config.ssid).length() == 0){
+    apmode();
+  } else {
+    netconnnect();
 
-  // Find speaker
-  IPAddress ghomeIP = get_ghomeIP();
+    // Network
+
+    spotify.lateInit(client, config.spotifyid, config.spotifysecret);
+    client.setCACert(spotify_server_cert);
+
+    Serial.println("Refreshing Access Tokens");
+    if(!spotify.refreshAccessToken()){
+        Serial.println("Failed to get access tokens");
+        return;
+    }
+  }
+  
 }
 
 
@@ -97,14 +118,33 @@ void loop() {
   // bool middle = false;
   // bool next = false;
   if (digitalRead(btnPrev)  == 1) {
-    Serial.println("Previous");
-    indicate(redLed, 1, false);
+    Serial.print("Going to previous track...");
+    if(spotify.previousTrack()){
+      Serial.println("done!");
+      indicate(redLed, 1, false);
+    }
   } else if (digitalRead(btnMid)  == 1) {
-    Serial.println("Middle");
-    indicate(redLed, 2, false);
+    if (playstatus == "play"){
+      Serial.print("Pausing...");
+      if(spotify.pause()){
+        Serial.println("done!");
+        playstatus = "pause";
+      }
+      indicate(redLed, 2, false);
+    } else if (playstatus == "pause"){
+      Serial.print("Playing...");
+      if(spotify.play()){
+        Serial.println("done!");
+        playstatus = "play";
+      }
+      indicate(redLed, 2, false);
+    }
   } else if (digitalRead(btnNxt)  == 1) {
-    Serial.println("Next");
-    indicate(redLed, 3, false);
+    Serial.print("Skipping to next track...");
+    if(spotify.nextTrack()){
+      Serial.println("done!");
+      indicate(redLed, 3, false);
+    }
   }
   delay(200);
 }
