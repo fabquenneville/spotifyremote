@@ -17,6 +17,36 @@ String playstatus = "play";
 
 WebServer server(80);
 
+
+#define EEPROM_SIZE 1024
+typedef struct AppConfig {
+  char ssid[32];
+  char pass[32];
+  char hostname[32];
+  char domain[32];
+  char spotifyid[64];
+  char spotifysecret[64];
+} AppConfig;
+AppConfig config;
+
+// #define SPOTIFY_REFRESH_TOKEN "AAAAAAAAAABBBBBBBBBBBCCCCCCCCCCCDDDDDDDDDDD"
+
+WiFiClientSecure client;
+ArduinoSpotify spotify;
+
+
+
+void saveConfig(int nbbytes = 1024){
+  EEPROM.begin(nbbytes);
+
+  //save config to EEPROM
+  EEPROM.put( 0, config);
+  EEPROM.commit();
+
+  EEPROM.end();
+  Serial.println("Configuration saved to EEPROM");
+}
+
 const char *webpageTemplate =
     R"(
 <!DOCTYPE html>
@@ -45,29 +75,37 @@ const char *webpageTemplate =
   </body>
 </html>
 )";
+void apmode(){
+  Serial.println("Setting Access Point         : SpotifyRemote");
+  WiFi.softAP("SpotifyRemote");
+  IPAddress IP = WiFi.softAPIP();
+  Serial.print("AP IP address                : ");
+  Serial.println(IP);
 
-#define EEPROM_SIZE 1024
-typedef struct AppConfig {
-  char ssid[32];
-  char pass[32];
-  char hostname[32];
-  char domain[32];
-  char spotifyid[64];
-  char spotifysecret[64];
-} AppConfig;
-AppConfig config;
+  if (MDNS.begin("spotifyremote"))
+  {
+    Serial.println("MDNS responder started       : spotifyremote");
+  }
+}
 
-// #define SPOTIFY_REFRESH_TOKEN "AAAAAAAAAABBBBBBBBBBBCCCCCCCCCCCDDDDDDDDDDD"
+boolean testconnect(const char* ssid, const char* pass){
+  Serial.print("Attempting connection to WiFi ");
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, pass);
+  unsigned long startTime = millis();
+  while(WiFi.status() != WL_CONNECTED && millis() - startTime < wifi_timeout){
+    Serial.print(".");
+    delay(100);
+  }
+  Serial.print("\r\n");
 
-WiFiClientSecure client;
-ArduinoSpotify spotify;
-
-void handleNetworkSetupForm()
-{
-  Serial.println("In handleInitialSetupForm");
-  String message = "Number of args received:";
-  message += server.args();
-  Serial.println(message);
+  if(WiFi.status() != WL_CONNECTED){
+    Serial.println("WiFi error!");
+    return false;
+  }
+  Serial.print("Connected, IP: ");
+  Serial.println(WiFi.localIP());
+  return true;
 }
 
 void handleNetworkSetup()
@@ -85,7 +123,7 @@ void handleNetworkSetup()
     <input type="text" id="pass" name="pass" required>
 
     <label for="hostname">Hostname for the remote:</label>
-    <input type="text" id="hostname" name="hostname" value="SpotifyRemote" required>
+    <input type="text" id="hostname" name="hostname" value="spotifyremote" required>
 
     <label for="domain">Local domain:</label>
     <input type="text" id="domain" name="domain" value="local" required>
@@ -96,14 +134,6 @@ void handleNetworkSetup()
   )";
   sprintf(index, webpageTemplate, title, section);
   server.send(200, "text/html", index);
-}
-
-void handleSpotifySetupForm()
-{
-  Serial.println("In handleInitialSetupForm");
-  String message = "Number of args received:";
-  message += server.args();
-  Serial.println(message);
 }
 
 void handleSpotifySetup()
@@ -130,6 +160,60 @@ void handleSpotifySetup()
   server.send(200, "text/html", index);
 }
 
+boolean handleNetworkSetupForm()
+{
+  if( ! server.hasArg("ssid") || ! server.hasArg("pass") || 
+      ! server.hasArg("hostname") || ! server.hasArg("password") ){
+        handleNetworkSetup();
+  }
+
+  String ssid = server.arg("ssid");
+  String pass = server.arg("pass");
+  String hostname = server.arg("hostname");
+  String domain = server.arg("domain");
+
+  Serial.println("In handleInitialSetupForm");
+  
+  Serial.print("ssid      :");
+  Serial.println(ssid);
+  Serial.print("pass      :");
+  Serial.println(pass);
+  Serial.print("hostname  :");
+  Serial.println(hostname);
+  Serial.print("domain    :");
+  Serial.println(domain);
+
+  if (! testconnect(ssid.c_str(), pass.c_str())) {
+    Serial.println("Something wrong with the WIFI settings provided, please try again!");
+    apmode();
+    return false;
+  }
+
+
+  // put some data in config
+  strcpy(config.ssid, ssid.c_str());
+  strcpy(config.pass, pass.c_str());
+  strcpy(config.hostname, hostname.c_str());
+  strcpy(config.domain, domain.c_str());
+
+  saveConfig(EEPROM_SIZE);
+
+
+  char message[1024];
+  sprintf(message, "Network succesfully setup, please visit http://%s.%s/ to setup spotify", config.hostname, config.domain);
+  Serial.println(message);
+
+  return true;
+}
+
+void handleSpotifySetupForm()
+{
+  Serial.println("In handleInitialSetupForm");
+  String message = "Number of args received:";
+  message += server.args();
+  Serial.println(message);
+}
+
 
 void indicate(int ledPin, int duration = 3, bool solid = true) {
   if (solid) {
@@ -143,19 +227,6 @@ void indicate(int ledPin, int duration = 3, bool solid = true) {
       digitalWrite(ledPin, LOW);
       delay(1000);
     }
-  }
-}
-
-void apmode(){
-  Serial.println("Setting Access Point         : SpotifyRemote");
-  WiFi.softAP("SpotifyRemote");
-  IPAddress IP = WiFi.softAPIP();
-  Serial.print("AP IP address                : ");
-  Serial.println(IP);
-
-  if (MDNS.begin("spotifyremote"))
-  {
-    Serial.println("MDNS responder started       : spotifyremote");
   }
 }
 
