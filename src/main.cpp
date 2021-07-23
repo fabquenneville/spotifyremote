@@ -17,8 +17,7 @@ String playstatus = "play";
 
 WebServer server(80);
 
-
-#define EEPROM_SIZE 1024
+#define EEPROM_SIZE 2048
 typedef struct AppConfig {
   char ssid[32];
   char pass[32];
@@ -26,14 +25,12 @@ typedef struct AppConfig {
   char domain[32];
   char spotifyid[64];
   char spotifysecret[64];
-  char spotifyrefreshtoken[64];
+  char spotifyrefreshtoken[512];
 } AppConfig;
 AppConfig config;
 
 WiFiClientSecure client;
-ArduinoSpotify spotify;
-
-
+ArduinoSpotify spotify(client);
 
 void saveConfig(int nbbytes = 1024){
   EEPROM.begin(nbbytes);
@@ -94,6 +91,7 @@ const char *webpageTemplate =
 )";
 void apmode(){
   Serial.println("Setting Access Point         : SpotifyRemote");
+  WiFi.setHostname("spotifyremote");
   WiFi.softAP("SpotifyRemote");
   IPAddress IP = WiFi.softAPIP();
   Serial.print("AP IP address                : ");
@@ -181,30 +179,39 @@ void handleSpotifyIDSetup()
   server.send(200, "text/html", index);
 }
 
+String get_callbackurl(){
+  // Building the callback URL
+  char callbackURI[100];
+  char callbackURItemplate[] = "%s%s%s";
+  char callbackURIProtocol[] = "http%3A%2F%2F";
+  char callbackURIAddress[] = "%2Fcallback%2F";
+  String fqdn = String(config.hostname) + "." + String(config.domain);
+  sprintf(callbackURI, callbackURItemplate, callbackURIProtocol, fqdn.c_str(), callbackURIAddress);
+  return callbackURI;
+}
+
 void handleSpotifyRefreshSetup()
 {
   char index[2048];
-  const char * title = "SpotifyRemote initial setup (2 of 3): Spotify clientID";
-  const char * section = R"(
+  char section[1024];
+  String callbackURI = get_callbackurl();
+  const char * title = "SpotifyRemote initial setup (3 of 3): Spotify refresh token";
+  const char * scope = "user-read-playback-state%20user-modify-playback-state";
+  const char * tmp = R"(
   <section>
-  <h2>Initial setup: Spotify clientID!</h2>
+  <h2>Initial setup: Spotify refresh token!</h2>
   <div>
     <div class="max25">
-      <form action="/" class="formgrid" method="post">
-        <p class="grid_span2">From <a href="https://developer.spotify.com/dashboard/applications/" target="_blank">Spotify application dashboard</a></p>
-
-        <label for="spotifyid">Spotify client ID:</label>
-        <input type="text" id="spotifyid" name="spotifyid" required>
-
-        <label for="spotifysecret">Spotify client secret:</label>
-        <input type="text" id="spotifysecret" name="spotifysecret" required>
-
-        <div class="grid_span2"><input type="submit" value="Submit"></div>
-      </form> 
+      <a href="https://accounts.spotify.com/authorize?client_id=%s&response_type=code&redirect_uri=%s&scope=%s">spotify Auth</a>
     </div>
   </div>
   </section>
   )";
+
+  // Building the section
+  sprintf(section, tmp, config.spotifyid, callbackURI.c_str(), scope);
+
+  // Building the page
   sprintf(index, webpageTemplate, title, section);
   server.send(200, "text/html", index);
 }
@@ -307,6 +314,31 @@ void handleSpotifyRefreshSetupForm()
   return;
 }
 
+void handleCallback()
+{
+  String code = "";
+  const char *refreshToken = NULL;
+  for (uint8_t i = 0; i < server.args(); i++)
+  {
+    if (server.argName(i) == "code")
+    {
+      code = server.arg(i);
+      refreshToken = spotify.requestAccessTokens(code.c_str(), get_callbackurl().c_str());
+    }
+  }
+
+  if (refreshToken != NULL)
+  {
+    strcpy(config.spotifyrefreshtoken, refreshToken);
+    saveConfig(EEPROM_SIZE);
+    server.send(200, "text/plain", refreshToken);
+  }
+  else
+  {
+    server.send(404, "text/plain", "Failed to load token, check serial monitor");
+  }
+}
+
 void indicate(int ledPin, int duration = 3, bool solid = true) {
   if (solid) {
       digitalWrite(ledPin, HIGH);
@@ -324,6 +356,8 @@ void indicate(int ledPin, int duration = 3, bool solid = true) {
 
 void netconnnect(){
   Serial.print("Connecting to WiFi ");
+  String fqdn = String(config.hostname) + "." + String(config.domain);
+  WiFi.setHostname(fqdn.c_str());
   WiFi.mode(WIFI_STA);
   WiFi.begin(config.ssid, config.pass);
   unsigned long startTime = millis();
@@ -340,9 +374,7 @@ void netconnnect(){
     Serial.println(WiFi.localIP());
   }
 
-  String fqdn = String(config.hostname) + "." + String(config.domain);
-  const char* cfqdn = fqdn.c_str();
-  if (MDNS.begin(cfqdn))
+  if (MDNS.begin(fqdn.c_str()))
   {
     Serial.print("MDNS responder started       : ");
     Serial.println(fqdn);
@@ -374,11 +406,13 @@ void setup() {
     if (String(config.spotifyid).length() == 0){
       server.on("/", HTTP_POST, handleSpotifyIDSetupForm);
       server.on("/", handleSpotifyIDSetup);
-    } else if (String(config.spotifyrefreshtoken).length() == 0){
+    } if (String(config.spotifyrefreshtoken).length() == 0){
+      spotify.lateInit(config.spotifyid, config.spotifysecret);
+      server.on("/callback/", handleCallback);
       server.on("/", HTTP_POST, handleSpotifyRefreshSetupForm);
       server.on("/", handleSpotifyRefreshSetup);
     } else {
-      spotify.lateInit(client, config.spotifyid, config.spotifysecret);
+      spotify.lateInit(config.spotifyid, config.spotifysecret);
       client.setCACert(spotify_server_cert);
 
       Serial.println("Refreshing Access Tokens");
