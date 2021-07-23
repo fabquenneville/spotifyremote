@@ -25,6 +25,19 @@ const char *webpageTemplate =
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <style>
+      .grid {
+        display: grid;
+        grid-template-columns:minmax(0, 1fr);
+        grid-row-gap:.1em;
+      }
+      .grid_double {
+          grid-column-start:span 2;		
+      }
+      .grid_span2{
+        grid-column: span 2;
+      }
+    </style>
   </head>
   <body>
     <h1>%s</h1>
@@ -49,16 +62,70 @@ AppConfig config;
 WiFiClientSecure client;
 ArduinoSpotify spotify;
 
-void handleIndex()
+void handleNetworkSetupForm()
 {
-  char index[1024];
-  const char * title = "Some title";
-  const char * section = R"V0G0N(
+  Serial.println("In handleInitialSetupForm");
+  String message = "Number of args received:";
+  message += server.args();
+  Serial.println(message);
+}
+
+void handleNetworkSetup()
+{
+  char index[2048];
+  const char * title = "SpotifyRemote setup";
+  const char * section = R"(
   <section>
-  <h2>Some title!</h2>
-  <p>Some text</p>
+  <h2>Initial setup!</h2>
+  <form action="/" class="grid grid_double" method="post">
+    <label for="ssid">Network SSID:</label>
+    <input type="text" id="ssid" name="ssid" required>
+
+    <label for="pass">Network password:</label>
+    <input type="text" id="pass" name="pass" required>
+
+    <label for="hostname">Hostname for the remote:</label>
+    <input type="text" id="hostname" name="hostname" value="SpotifyRemote" required>
+
+    <label for="domain">Local domain:</label>
+    <input type="text" id="domain" name="domain" value="local" required>
+
+    <div class="grid_span2"><input type="submit" value="Submit"></div>
+  </form> 
   </section>
-  )V0G0N";
+  )";
+  sprintf(index, webpageTemplate, title, section);
+  server.send(200, "text/html", index);
+}
+
+void handleSpotifySetupForm()
+{
+  Serial.println("In handleInitialSetupForm");
+  String message = "Number of args received:";
+  message += server.args();
+  Serial.println(message);
+}
+
+void handleSpotifySetup()
+{
+  char index[2048];
+  const char * title = "SpotifyRemote setup";
+  const char * section = R"(
+  <section>
+  <h2>Initial setup!</h2>
+  <form action="/" class="grid grid_double" method="post">
+    <p class="grid_span2">From <a href="https://developer.spotify.com/dashboard/applications/" target="_blank">Spotify application dashboard</a></p>
+
+    <label for="spotifyid">Spotify client ID:</label>
+    <input type="text" id="spotifyid" name="spotifyid" required>
+
+    <label for="spotifysecret">Spotify client secret:</label>
+    <input type="text" id="spotifysecret" name="spotifysecret" required>
+
+    <div class="grid_span2"><input type="submit" value="Submit"></div>
+  </form> 
+  </section>
+  )";
   sprintf(index, webpageTemplate, title, section);
   server.send(200, "text/html", index);
 }
@@ -128,19 +195,24 @@ void setup() {
 
   if (String(config.ssid).length() == 0){
     apmode();
-    server.on("/", handleIndex);
+    server.on("/", HTTP_POST, handleNetworkSetupForm);
+    server.on("/", handleNetworkSetup);
   } else {
     netconnnect();
 
-    // Network
+    if (String(config.spotifyid).length() == 0){
+      apmode();
+      server.on("/", HTTP_POST, handleSpotifySetupForm);
+      server.on("/", handleSpotifySetup);
+    } else {
+      spotify.lateInit(client, config.spotifyid, config.spotifysecret);
+      client.setCACert(spotify_server_cert);
 
-    spotify.lateInit(client, config.spotifyid, config.spotifysecret);
-    client.setCACert(spotify_server_cert);
-
-    Serial.println("Refreshing Access Tokens");
-    if(!spotify.refreshAccessToken()){
-        Serial.println("Failed to get access tokens");
-        return;
+      Serial.println("Refreshing Access Tokens");
+      if(!spotify.refreshAccessToken()){
+          Serial.println("Failed to get access tokens");
+          return;
+      }
     }
   }
   
