@@ -1,6 +1,6 @@
 # spotifyremote
 
-spotifyremote is a phisical remote for spotify and spotify powered devices.
+spotifyremote is a physical remote for Spotify and Spotify powered devices.
 
 ## Documentation
 
