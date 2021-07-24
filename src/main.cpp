@@ -2,7 +2,6 @@
 #include <ArduinoSpotify.h>
 #include <ArduinoSpotifyCert.h>
 #include <EEPROM.h>
-#include <ESPmDNS.h>
 #include <WebServer.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -96,11 +95,6 @@ void apmode(){
   IPAddress IP = WiFi.softAPIP();
   Serial.print("AP IP address                : ");
   Serial.println(IP);
-
-  if (MDNS.begin("spotifyremote"))
-  {
-    Serial.println("MDNS responder started       : spotifyremote");
-  }
 }
 
 boolean testconnect(const char* ssid, const char* pass){
@@ -356,8 +350,7 @@ void indicate(int ledPin, int duration = 3, bool solid = true) {
 
 void netconnnect(){
   Serial.print("Connecting to WiFi ");
-  String fqdn = String(config.hostname) + "." + String(config.domain);
-  WiFi.setHostname(fqdn.c_str());
+  WiFi.setHostname(config.hostname);
   WiFi.mode(WIFI_STA);
   WiFi.begin(config.ssid, config.pass);
   unsigned long startTime = millis();
@@ -372,12 +365,6 @@ void netconnnect(){
   } else {
     Serial.print("Connected, IP: ");
     Serial.println(WiFi.localIP());
-  }
-
-  if (MDNS.begin(fqdn.c_str()))
-  {
-    Serial.print("MDNS responder started       : ");
-    Serial.println(fqdn);
   }
 }
 
@@ -402,18 +389,19 @@ void setup() {
     server.on("/", handleNetworkSetup);
   } else {
     netconnnect();
+    client.setCACert(spotify_server_cert);
 
     if (String(config.spotifyid).length() == 0){
       server.on("/", HTTP_POST, handleSpotifyIDSetupForm);
       server.on("/", handleSpotifyIDSetup);
     } if (String(config.spotifyrefreshtoken).length() == 0){
       spotify.lateInit(config.spotifyid, config.spotifysecret);
+
       server.on("/callback/", handleCallback);
       server.on("/", HTTP_POST, handleSpotifyRefreshSetupForm);
       server.on("/", handleSpotifyRefreshSetup);
     } else {
-      spotify.lateInit(config.spotifyid, config.spotifysecret);
-      client.setCACert(spotify_server_cert);
+      spotify.lateInit(config.spotifyid, config.spotifysecret, config.spotifyrefreshtoken);
 
       Serial.println("Refreshing Access Tokens");
       if(!spotify.refreshAccessToken()){
